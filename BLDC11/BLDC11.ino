@@ -138,7 +138,7 @@ void parseCommands()
   if(b == 1){ //Switch statement wasn't working, so if-else ladder it is.
     sendAck();
     
-  } else if(b == 2){
+  } else if(b == 7){ //Setphase
     setPhase(inBuffer[1], inBuffer[2]);
     sendAck();
     
@@ -189,10 +189,11 @@ int getCommandLength(byte command)
   switch(command)
   {
     case 1 : return 1; //ACK
-    case 2 : return 3; //SetPhase
+    case 7 : return 3; //SetPhase
     case 3 : return 5; //Addshorts
     case 4 : return 2; //Setmode
     case 5 : return 1; //GetTotalVals
+    case 6 : return 1;
   }
 }
 
