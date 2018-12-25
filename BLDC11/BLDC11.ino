@@ -41,6 +41,9 @@ void setup() {
   pinMode(A, OUTPUT);
   pinMode(B, OUTPUT);
   pinMode(C, OUTPUT);
+  pinMode(ISense, INPUT);
+  pinMode(VSense, INPUT);
+
 }
 
 
@@ -54,7 +57,10 @@ byte mode = 0;
 boolean recievingPacket = false;
 int packetLength = 0;
 int packetIndex = 0;
-volatile int inBuffer[256]; //define as maximum packet length.
+int inBuffer[256]; //define as maximum packet length.
+
+long encPos = 0; //Encoder position
+
 void loop() {
   //PACKET HANDLING BELOW
   if(Serial.available() > 0){
@@ -84,7 +90,8 @@ void loop() {
     }
     //Otherwise, not part of packet. Just let it go.
   }
-  
+
+  long encPos = enc.read();
   
 }
 
@@ -104,6 +111,13 @@ void setMode(byte newMode)
   }
 }
 
+void sendErr(byte err)
+{
+  byte outBuffer[2];
+  outBuffer[0] = 2;
+  outBuffer[1] = err;
+  sendByteArray(outBuffer, 2);
+}
 void setPhase(byte phase, byte pwm)
 {
   
@@ -126,45 +140,90 @@ void finishPacket()
   parseCommands(); //Parse commands,
   packetIndex = 0;
   recievingPacket = false;
+  
 }
 
 void parseCommands()
 {
-
   byte cmdBuffer[256];
-  //if(inBuffer[0] == 4){digitalWrite(13, HIGH);}
-  byte b = inBuffer[0];
+  int b = (int) inBuffer[0];
   
-  if(b == 1){ //Switch statement wasn't working, so if-else ladder it is.
-    sendAck();
-    
-  } else if(b == 7){ //Setphase
-    setPhase(inBuffer[1], inBuffer[2]);
-    sendAck();
-    
-  } else if(b == 3){
-    long a = 0;
-    long b = 0;
-    a |= inBuffer[1] << 8; //Upper part of int.
-    a |= inBuffer[2]; //Lower part of int.
-    b |= inBuffer[3] << 8;
-    b |= inBuffer[4];
-    long ret = a+b;
-    cmdBuffer[0] = 3;
-    cmdBuffer[1] = (uint8_t)(ret >> 24); //Shift down top byte, cast to byte.
-    cmdBuffer[2] = (uint8_t)(ret >> 16);
-    cmdBuffer[3] = (uint8_t)(ret >> 8);
-    cmdBuffer[4] = (uint8_t)ret;
-    sendByteArray(cmdBuffer, 5);
-    
-  } else if(b == 4){
-    setMode(inBuffer[1]);
-    sendAck();
-    
-  } else if(b == 5){
-    
+  switch(b)
+  {
+    case 1: //ACK
+    {
+       sendAck();
+       break;
+    }
+    case 2: //Error
+    {
+       break;
+    }
+      
+    case 3: //Addshorts
+    {
+      long a = 0;
+      long b = 0;
+      a = word(inBuffer[1], inBuffer[2]); //Bytes to int
+      b = word(inBuffer[3], inBuffer[4]); //Bytes to int
+      
+      long ret = a+b; //Calculate addition
+      
+      cmdBuffer[0] = 3; //CMDbyte
+      cmdBuffer[1] = (uint8_t)(ret >> 24); //Shift down top byte, cast to byte.
+      cmdBuffer[2] = (uint8_t)(ret >> 16);
+      cmdBuffer[3] = (uint8_t)(ret >> 8);
+      cmdBuffer[4] = (uint8_t)ret;
+      sendByteArray(cmdBuffer, 5);
+      break;
+    }
+    case 4: //totaldata
+    {
+      int ampsRaw = analogRead(ISense);
+      int voltsRaw = analogRead(VSense);
+      cmdBuffer[0] = 4;
+      cmdBuffer[1] = encPos >> 24;
+      cmdBuffer[2] = encPos >> 16;
+      cmdBuffer[3] = encPos >> 8;
+      cmdBuffer[4] = encPos >> 0;
+      cmdBuffer[5] = highByte(ampsRaw);
+      cmdBuffer[6] = lowByte(ampsRaw);
+      cmdBuffer[7] = highByte(voltsRaw);
+      cmdBuffer[8] = lowByte(voltsRaw);
+      sendByteArray(cmdBuffer, 9);
+      break;
+    }
+    case 5://setmode
+    {
+      setMode(inBuffer[1]);
+      sendAck();
+      break;
+    }
+    case 6://setphaseduties
+    {
+      break;
+    }
+    case 7://setphaseduty
+    {
+      setPhase(inBuffer[1], inBuffer[2]);
+      sendAck();
+      break;  
+    }
   }
+}
 
+int getCommandLength(byte command)
+{
+  switch(command)
+  {
+    case 1 : return 1; //ACK
+    case 2 : return 2; //Error
+    case 3 : return 5; //Addshorts
+    case 4 : return 1;  //totaldata
+    case 5 : return 2; //Setmode
+    case 6 : return 1;  //setallphaseduties
+    case 7 : return 1; //setphaseduty
+  }
 }
 
 void sendAck()
@@ -184,18 +243,7 @@ void sendByteArray(byte toSend[], int commandLength)
   Serial.write(outBuffer, commandLength + 1);
 }
 
-int getCommandLength(byte command)
-{
-  switch(command)
-  {
-    case 1 : return 1; //ACK
-    case 7 : return 3; //SetPhase
-    case 3 : return 5; //Addshorts
-    case 4 : return 2; //Setmode
-    case 5 : return 1; //GetTotalVals
-    case 6 : return 1;
-  }
-}
+
 
 double readAmps() //Averages out I readings over 100ms
 {
